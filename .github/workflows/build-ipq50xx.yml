@@ -257,6 +257,10 @@ jobs:
             '^CONFIG_PACKAGE_luci-app-sqm=y$' \
             '^CONFIG_PACKAGE_kmod-ifb=y$' \
             '^CONFIG_PACKAGE_ca-bundle=y$' \
+            '^CONFIG_PACKAGE_kmod-ath11k=y$' \
+            '^CONFIG_PACKAGE_wpad-basic-mbedtls=y$' \
+            '^CONFIG_PACKAGE_luci-theme-bootstrap=y$' \
+            '^CONFIG_PACKAGE_luci-i18n-base-zh-cn=y$' \
             '^CONFIG_PACKAGE_adblock=y$' \
             '^CONFIG_PACKAGE_dnsmasq-full=y$' \
             ; do
