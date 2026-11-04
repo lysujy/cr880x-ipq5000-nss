@@ -37,11 +37,17 @@ Qualcomm NSS 硬件加速的固件，目标是**最新内核 + 最强 NSS 加速
   所以不 baked 进镜像）；XL/XXL/VAR 大源故意没开，规则多少直接影响
   dnsmasq 内存，256MB 板子别贪大。
 - **Argon 主题**：luci-theme-argon + luci-app-argon-config，
-  编译时从上游拉最新 master（底包 feed 里没有）；首次开机
-  自动设为 LuCI 默认主题（Bootstrap 也在镜像里，可随时换回）。
+  编译时从上游拉最新 master（底包 feed 里没有）。**默认主题已改为
+  Bootstrap**（顶部横排菜单，与官方 OpenWrt 的观感一致）；Argon 也
+  在镜像里，可在「系统 → 语言和界面」随时切回左侧栏布局。
+- **中文界面**：`luci-i18n-base-zh-cn` 加上 firewall / package-manager /
+  sqm / upnp 四个中文包。语言跟随浏览器（`luci.main.lang=auto`），
+  中文系统打开就是中文。
+- **无线栈显式声明**：`kmod-ath11k`、`wpad-basic-mbedtls`、`iw`、
+  `iwinfo` 都写进配置。不写的话 defconfig 会静默丢掉驱动，连带把
+  ath11k 固件包一起丢，结果就是“有系统没无线”。
 - **小工具**：htop、zoneinfo-asia、upnp、tcpdump-mini。
-- **LuCI 保留**；initramfs 镜像保留，用于 UART + TFTP
-  首次安装。
+- **LuCI 保留**；initramfs 镜像保留，用于 UART + TFTP 备选安装。
 - **编译缓存**：工作流缓存 `openwrt/.ccache`，每次运行
   存新缓存、前缀匹配恢复上一次；超 10 GB 由 GitHub 按
   最久未用自动淘汰，另有删旧缓存步骤。
@@ -233,26 +239,52 @@ SQM、dnsmasq 缓存的实际效果。
   版本编译，两个版本不要混用。
 - `base_ref`：底包提交， rebase 时更新。
 
-## 首次安装（CR8806）
+## 首次安装（CR8806，M79 + 第三方大分区 U-Boot）
 
-- 首次安装走 UART（115200 8N1）+ TFTP，启动 initramfs
-  （`config@mp02.1`），把 factory.ubi 写到另一个 slot；之后
-  升级用 sysupgrade。
-- 双 slot 写错有变砖风险，操作前确认自己板子的 slot 布局，
-  不要照搬别板子的步骤；刷之前先备份原厂固件。
-- ⚠️ factory.ubi 是 OpenWrt 的 UBI 镜像，不是原厂格式固件：
-  只能在已启动的 initramfs 系统里写到固件 UBI 分区，**不能
-  当成原厂固件用引导的 web 恢复随便刷**——写到错误的分区
-  （尤其是引导分区），或按原厂固件的方式写到固件区，
-  都会变砖（2026-11-03 已有因此变砖的案例）。
-- ⚠️ 从 HZYITC 系统（双分区合并成一个 UBI）过来的用户：
-  不能直接 sysupgrade（尤其不能强制刷），两边分区布局
-  对不上，刷完重启还是原系统；必须走上面这条 UART +
-  TFTP 首次安装路径。
-- 万一刷坏进不去系统：断电，按住 reset 再通电，多试几次
-  才能进 U-Boot web（进入时机比较挑）；能进 web 就能刷回
-  已知好的固件。
-- 首次开机先在 LuCI 里设 root 密码（OpenWrt 默认 root 没密码）。
+两条路。**优先走路径 A**（2026-11-04 实机验证通过，不需要串口）。
+
+### 路径 A：U-Boot 网页刷写（推荐）
+
+前提：已刷 qaqal 大分区不死 U-Boot（<https://mao.fan/article/195>），
+NAND 已合并成一个大分区，factory 镜像里的分区表（`0xa80000` 起
+116.5 MiB 的 `rootfs`）与 U-Boot 认知一致。本项目的固件就是按这个
+布局编的。
+
+1. 先确认 U-Boot 环境变量里有 `rootfs` 这一项。U-Boot 的 `flash`
+   命令**按分区名**在 `mtdparts` 里查找，缺了就跳过且网页不报错：
+
+   ```sh
+   fw_setenv mtdparts 'nand0:0x2400000@0xa80000(fs),0x7480000@0xa80000(rootfs)'
+   ```
+
+2. 断电路由器 → **按住 reset 不放** → 上电，保持约 10 秒 → 松开。
+3. 电脑网线接 LAN 口，网卡设 `192.168.10.2/24`，浏览器打开
+   `http://192.168.10.1`。进不去就断电重来，进入时机比较挑。
+4. 选 `*-squashfs-factory.ubi` → 只点 **“更新固件”** → 等它自己
+   重启。首启约 1–2 分钟，全程不要断电。
+5. 起来后访问 `192.168.1.1`，root 空密码登录，**第一件事设密码**。
+
+> ⚠️ 同一页面的 **“更新 Uboot”（`/opboot.cgi`）绝对不要点**，
+> 那个才是真变砖入口。
+>
+> ⚠️ 页面显示完成 **不等于** 写进去了。判断标准是设备有没有真的
+> 重启：`uptime` 归零才算成功；`uptime` 还是几十小时就是没写。
+
+### 路径 B：UART + TFTP（路径 A 进不去网页时的备选）
+
+UART（115200 8N1）+ TFTP 引导 initramfs（`config@mp02.1`），在内存
+系统里跑 `install-from-linux.sh`（`ubidetach` + `ubiformat`）把
+factory 镜像写进 `rootfs` 分区。写之前先 `ubiformat /dev/mtd18`
+而不是直接 `nand write`，否则 ECC 对不上。
+
+### 升级与回滚
+
+- 升级：LuCI 上传 `*-sysupgrade.bin`，或 `sysupgrade -n`。
+- 从其它大分区系统（HZYITC / ImmortalWrt 等）过来：**不要直接
+  sysupgrade**。两边分区布局对不上，刷完重启还是原系统。走路径 A
+  或 B 平刷一次。
+- 刷坏了进不去系统：回到 U-Boot 网页，重刷一个已知好的
+  factory 镜像即可回滚（本项目的大分区固件之间可以互刷）。
 
 ## 装好后怎么验证 NSS 真在工作
 
