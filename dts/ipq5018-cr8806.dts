@@ -241,7 +241,7 @@
 			};
 
 			partition@780000 {
-				label = "0:ART";
+				label = "0:art";
 				reg = <0x780000 0x100000>;
 				read-only;
 
